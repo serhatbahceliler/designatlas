@@ -353,8 +353,16 @@ export default function DashboardPage() {
   }
 
   const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Kullanıcı'
-  const currentRoadmap = roadmapData[activeRoadmap]
+  const currentRoadmap = roadmapData[activeRoadmap] || roadmapData['ux']
   const hasStarted = progress.length > 0
+
+  if (!currentRoadmap) {
+    return (
+      <div className="dashboard-loading">
+        <p>Yükleniyor...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="dashboard">
