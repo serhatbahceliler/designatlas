@@ -168,6 +168,19 @@ export default function DashboardPage() {
     }
 
     fetchUserData()
+
+    // Auto-refresh when page becomes visible (roadmap'ten döndüğünde)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchUserData()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [])
 
   const handleLogout = async () => {
