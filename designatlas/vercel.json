@@ -1,0 +1,8 @@
+{
+  "buildCommand": "cd designatlas && npm run build",
+  "outputDirectory": "designatlas/.next",
+  "devCommand": "cd designatlas && npm run dev",
+  "installCommand": "cd designatlas && npm install",
+  "framework": "nextjs",
+  "regions": ["iad1"]
+}

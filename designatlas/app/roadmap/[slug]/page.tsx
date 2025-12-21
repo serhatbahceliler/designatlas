@@ -169,24 +169,25 @@ export default function RoadmapPage() {
         return
       }
       setUser(user)
-      
-      // İlerleme verilerini çek
+
+      // İlerleme verilerini çek - YENİ ŞEMA
       const { data } = await supabase
         .from('user_progress')
         .select('*')
         .eq('user_id', user.id)
-        .eq('roadmap_id', slug)
-      
+        .eq('roadmap_slug', slug)
+
       if (data) {
         const progressMap: any = {}
         data.forEach((item: any) => {
-          progressMap[item.step_id] = item.status
+          // completed: true ise 'done', değilse progress_percentage > 0 ise 'in-progress', yoksa 'todo'
+          progressMap[item.step_id] = item.completed ? 'done' : (item.progress_percentage > 0 ? 'in-progress' : 'todo')
         })
         setProgress(progressMap)
       }
     }
     getUser()
-    
+
     // İlk section'ı aç
     if (roadmap?.sections?.length > 0) {
       setOpenSections([roadmap.sections[0].id])
@@ -203,26 +204,108 @@ export default function RoadmapPage() {
 
   const toggleStepStatus = async (stepId: string) => {
     if (!user) return
-    
+
     const currentStatus = progress[stepId]
     const newStatus = currentStatus === 'done' ? 'todo' : 'done'
-    
+
     setProgress((prev: any) => ({ ...prev, [stepId]: newStatus }))
-    
+
+    // Step başlığını bul
+    const stepTitle = roadmap.sections
+      .flatMap((s: any) => s.steps)
+      .find((s: any) => s.id === stepId)?.title || stepId
+
+    // YENİ ŞEMA: completed ve progress_percentage kullan
+    const isCompleted = newStatus === 'done'
+    const progressPercentage = isCompleted ? 100 : 0
+
     // Supabase'e kaydet
-    const { error } = await supabase
+    const { error: progressError } = await supabase
       .from('user_progress')
       .upsert({
         user_id: user.id,
-        roadmap_id: slug,
+        roadmap_slug: slug,
         step_id: stepId,
-        status: newStatus,
+        step_title: stepTitle,
+        progress_percentage: progressPercentage,
+        completed: isCompleted,
+        last_accessed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'user_id,roadmap_id,step_id'
+        onConflict: 'user_id,roadmap_slug,step_id'
       })
-    
-    if (error) console.error('Progress update error:', error)
+
+    if (progressError) {
+      console.error('Progress update error:', progressError)
+      return
+    }
+
+    // Roadmap kaydını ekle (eğer yoksa)
+    await supabase
+      .from('user_roadmaps')
+      .upsert({
+        user_id: user.id,
+        roadmap_slug: slug,
+        is_primary: true
+      }, {
+        onConflict: 'user_id,roadmap_slug'
+      })
+
+    // Streak güncelle (sadece tamamlandıysa)
+    if (isCompleted) {
+      await updateStreak()
+    }
+  }
+
+  const updateStreak = async () => {
+    if (!user) return
+
+    // Mevcut streak'i al
+    const { data: existingStreak } = await supabase
+      .from('user_streaks')
+      .select('*')
+      .eq('user_id', user.id)
+      .single()
+
+    const today = new Date().toISOString().split('T')[0]
+
+    if (existingStreak) {
+      const lastDate = existingStreak.last_activity_date
+      const daysDiff = Math.floor((new Date(today).getTime() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24))
+
+      let newStreak = existingStreak.current_streak
+
+      if (daysDiff === 0) {
+        // Bugün zaten aktivite var, streak aynı
+        newStreak = existingStreak.current_streak
+      } else if (daysDiff === 1) {
+        // Dün aktivite vardı, streak devam ediyor
+        newStreak = existingStreak.current_streak + 1
+      } else {
+        // Streak kopmuş, sıfırdan başla
+        newStreak = 1
+      }
+
+      await supabase
+        .from('user_streaks')
+        .update({
+          current_streak: newStreak,
+          longest_streak: Math.max(newStreak, existingStreak.longest_streak),
+          last_activity_date: today,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id)
+    } else {
+      // İlk streak kaydı
+      await supabase
+        .from('user_streaks')
+        .insert({
+          user_id: user.id,
+          current_streak: 1,
+          longest_streak: 1,
+          last_activity_date: today
+        })
+    }
   }
 
   if (!roadmap) {
